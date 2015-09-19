@@ -1,0 +1,100 @@
+--'
+-- esp8266 temperature sensor
+-- reads temperature from DS18B20 using the NODEMCU
+-- DS18B20 1 wire code, transmits the temperature
+-- to a web server as an http get, sleeps then repeats
+--'
+
+
+    --'
+    -- 18b20 one wire example for NODEMCU
+    -- NODEMCU TEAM
+    -- LICENCE: http://opensource.org/licenses/MIT
+    -- Vowstar <vowstar@nodemcu.com>
+    --'
+
+    print(wifi.sta.getip())
+    wifi.setmode(wifi.STATION)
+    wifi.sta.config("your-ssid","")
+    print(wifi.sta.getip())
+
+           srv=net.createServer(net.TCP)
+
+    pin = 10 
+    ow.setup(pin) 
+
+working_count = 0
+
+tmr.alarm(0,3000,1,function() 
+
+working_count = working_count + 1
+
+print("**** working_count = "..working_count)
+
+ if(working_count == 2) 
+             then 
+   		  print("********** working_count reached "..working_count..", sleeping...") 
+   		  node.dsleep(3000000)
+         end 
+
+
+
+    count = 0 
+    repeat 
+      count = count + 1 
+      addr = ow.reset_search(pin) 
+      addr = ow.search(pin) 
+      tmr.wdclr() 
+    until((addr ~= nil) or (count > 100)) 
+    if (addr == nil) then 
+      print("No more addresses.") 
+    else 
+        print(addr:byte(1,8)) 
+      crc = ow.crc8(string.sub(addr,1,7)) 
+      if (crc == addr:byte(8)) then 
+        if ((addr:byte(1) == 0x10) or (addr:byte(1) == 0x28)) then 
+          print("Device is a DS18S20 family device.") 
+            --repeat 
+              ow.reset(pin) 
+              ow.select(pin, addr) 
+              ow.write(pin, 0x44, 1) 
+              tmr.delay(1000000) 
+              present = ow.reset(pin) 
+              ow.select(pin, addr) 
+              ow.write(pin,0xBE,1) 
+              print("P="..present)  
+              data = nil 
+              data = string.char(ow.read(pin)) 
+              for i = 1, 8 do 
+                data = data .. string.char(ow.read(pin)) 
+              end 
+              print(data:byte(1,9)) 
+              crc = ow.crc8(string.sub(data,1,8)) 
+              print("CRC="..crc) 
+              if (crc == data:byte(9)) then 
+                 t = (data:byte(1) + data:byte(2) * 256) * 625 
+		 t = (t * 9)/5 
+                 t1 = t / 10000 
+		 t1 = t1 + 32 
+                 t2 = t % 10000 
+                 print("Temperature= "..t1.."."..t2.." Fahrenheit") 
+          
+              end                   
+              tmr.wdclr() 
+            --until false
+        else 
+          print("Device family is not recognized.") 
+        end 
+      else 
+        print("CRC is not valid!") 
+      end  
+    end  
+
+conn=net.createConnection(net.TCP, false) 
+conn:on("receive", function(conn, payload) print(payload) end)
+conn:connect(80,"192.168.1.2")
+	conn:send("GET /cgi-bin/rcv01.pl?serialnum=1;value="..t1.."."..t2.." HTTP/1.1\r\nHost:hostname.com:80\r\n\r\n")  
+	print(payload) 
+
+
+end)
